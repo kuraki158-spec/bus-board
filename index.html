@@ -233,6 +233,7 @@
   }
   .group-chip.am{border-color:var(--amber); color:var(--amber);}
   .group-chip.pm{border-color:#7FB4FF; color:#7FB4FF;}
+  .group-chip.srt{border-color:#C792EA; color:#C792EA;}
 
   /* 저장 시 그룹 선택 버튼 */
   .group-pick{display:flex; flex-direction:column; gap:8px; margin-top:14px;}
@@ -254,9 +255,9 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="all">전체</button>
     <button class="tab" data-tab="am">출근</button>
     <button class="tab" data-tab="pm">퇴근</button>
+    <button class="tab" data-tab="srt">SRT(GTX)</button>
   </nav>
 
   <main>
@@ -303,6 +304,7 @@
         <div class="group-pick">
           <button data-pick-group="am">🌅 출근</button>
           <button data-pick-group="pm">🌙 퇴근</button>
+          <button data-pick-group="srt">🚄 SRT(GTX)</button>
           <button data-pick-group="none">구분 없이 저장</button>
         </div>
       </div>
@@ -488,15 +490,17 @@
   const timers = {}; // favId -> intervalId
   const latest = {}; // favId -> { min, routeName, stationName } (요약 보드용)
   const LS_KEY_TAB = 'gbis_tab';
-  let currentTab = localStorage.getItem(LS_KEY_TAB) || 'all';
+  let currentTab = localStorage.getItem(LS_KEY_TAB) || 'am';
+  if (!['am','pm','srt'].includes(currentTab)) currentTab = 'am';
 
-  const GROUP_LABEL = { am: '출근', pm: '퇴근', none: '＋ 그룹' };
-  const GROUP_NEXT = { none: 'am', am: 'pm', pm: 'none' };
+  const GROUP_LABEL = { am: '출근', pm: '퇴근', srt: 'SRT(GTX)', none: '＋ 그룹' };
+  const GROUP_NEXT = { none: 'am', am: 'pm', pm: 'srt', srt: 'none' };
 
   function anyActive(){ return getFavs().some(f => f.active); }
   function inTab(f){
-    if (currentTab === 'all') return true;
-    return (f.group || 'none') === currentTab;
+    const g = f.group || 'none';
+    if (g === 'none') return true; // 그룹 미지정은 모든 탭에서 보임
+    return g === currentTab;
   }
 
   function renderFavs(){
@@ -793,25 +797,48 @@
     fillDirection(fav); // 방면 정보는 백그라운드로 조회
   }
 
-  // 노선 경유 정류소 목록에서 "다음 정류소"를 찾아 방면으로 저장
+  // 노선 경유 정류소 목록에서 "다음 정류소"를 찾아 방면으로 저장.
+  // 실패 시 노선 기본정보의 종점명으로 2차 시도.
   // ("경기도_버스노선 조회" 활용신청이 안 되어 있으면 조용히 생략됨)
   async function fillDirection(fav){
+    let direction = '';
     try {
       const data = await gbisFetch('/busrouteservice/v2/getBusRouteStationListv2', { routeId: fav.routeId });
       const stops = collectObjects(data, ['stationId', 'stationName']);
-      if (!stops.length) return;
       let idx = stops.findIndex(s =>
         String(s.stationId) === String(fav.stationId) &&
         (s.staOrder === undefined || String(s.staOrder) === String(fav.staOrder)));
       if (idx === -1) idx = stops.findIndex(s => String(s.stationId) === String(fav.stationId));
-      if (idx === -1) return;
-      const direction = (idx < stops.length - 1)
-        ? stops[idx + 1].stationName + ' 방면'
-        : '종점';
-      const favs = getFavs();
-      const f = favs.find(x => x.id === fav.id);
-      if (f){ f.direction = direction; setFavs(favs); renderFavs(); }
-    } catch(e){ /* 노선조회 미신청 등 - 방면 없이 진행 */ }
+      if (idx >= 0){
+        direction = (idx < stops.length - 1)
+          ? stops[idx + 1].stationName + ' 방면'
+          : '종점';
+      }
+    } catch(e){ /* 1차 실패 - 2차로 */ }
+
+    if (!direction){
+      try {
+        const data = await gbisFetch('/busrouteservice/v2/getBusRouteInfoItemv2', { routeId: fav.routeId });
+        const infos = collectObjects(data, ['endStationName']);
+        if (infos.length && infos[0].endStationName){
+          direction = infos[0].endStationName + ' 방면';
+        }
+      } catch(e){ /* 2차도 실패 - 방면 없이 진행 */ }
+    }
+
+    if (!direction) return;
+    const favs = getFavs();
+    const f = favs.find(x => x.id === fav.id);
+    if (f && !f.direction){ f.direction = direction; setFavs(favs); renderFavs(); }
+  }
+
+  // 방면이 비어있는 기존 즐겨찾기를 앱 시작 시 자동으로 다시 채움
+  async function backfillDirections(){
+    if (!getApiKey()) return;
+    const favs = getFavs().filter(f => !f.direction);
+    for (const f of favs){
+      await fillDirection(f);
+    }
   }
 
   /* ---------- 설정 / API 키 ---------- */
@@ -872,6 +899,7 @@
   checkGate();
   renderFavs();
   resumeActiveFavs();
+  backfillDirections();
 })();
 </script>
 </body>

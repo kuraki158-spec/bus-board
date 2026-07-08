@@ -16,7 +16,8 @@ const LEGACY_PATH = {
   '/busstationservice/v2/getBusStationListv2': '/busstationservice',
   '/busstationservice/v2/getBusStationViaRouteListv2': '/busstationservice/route',
   '/busarrivalservice/v2/getBusArrivalItemv2': '/busarrivalservice',
-  '/busrouteservice/v2/getBusRouteStationListv2': '/busrouteservice/station'
+  '/busrouteservice/v2/getBusRouteStationListv2': '/busrouteservice/station',
+  '/busrouteservice/v2/getBusRouteInfoItemv2': '/busrouteservice/info'
 };
 
 // 간단한 XML → JSON 변환 (GBIS 레거시 응답용)
