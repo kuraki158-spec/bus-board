@@ -962,15 +962,32 @@
     });
   }
 
+  // 오늘이 평일/토요일/휴일 중 어디인지 판별
+  // (일요일 + 고정 공휴일 = 휴일. 설날·추석 등 음력 명절과 대체공휴일은 판별 불가)
+  function todayTtDay(){
+    const now = new Date();
+    const dow = now.getDay(); // 0=일, 6=토
+    const mmdd = String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const FIXED_HOLIDAYS = ['01-01','03-01','05-05','06-06','08-15','10-03','10-09','12-25'];
+    if (dow === 0 || FIXED_HOLIDAYS.includes(mmdd)) return 'hol';
+    if (dow === 6) return 'sat';
+    return 'wd';
+  }
+
   function openTimetable(id){
     ttCurrentId = id;
     const f = getFavs().find(x => x.id === id);
     document.getElementById('ttTitle').textContent =
       (f ? f.routeName + ' · ' + f.stationName + ' ' : '') + '시간표';
-    // 기본 요일: 이미지가 있는 첫 요일, 없으면 평일
-    const firstHas = TT_DAYS.find(d => ttHave.has(ttKey(id, d)));
+    // 기본 요일: 오늘에 해당하는 탭 → 이미지가 없으면 이미지 있는 첫 요일 → 그것도 없으면 오늘 탭
+    const today = todayTtDay();
+    let day = today;
+    if (!ttHave.has(ttKey(id, today))){
+      const firstHas = TT_DAYS.find(d => ttHave.has(ttKey(id, d)));
+      if (firstHas) day = firstHas;
+    }
     document.getElementById('ttViewer').classList.remove('hidden');
-    showTtDay(firstHas || 'wd');
+    showTtDay(day);
   }
 
   async function showTtDay(day){
