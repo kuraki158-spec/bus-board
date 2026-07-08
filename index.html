@@ -193,7 +193,7 @@
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
 
-  /* 출근/퇴근 탭 */
+  /* 출근/퇴근/SRT 탭 */
   .tabs{
     display:flex; gap:6px; padding:12px 16px 0;
   }
@@ -202,6 +202,15 @@
     padding:10px 0; border-radius:12px; font-size:13.5px; font-weight:700;
   }
   .tab.active{background:var(--amber); border-color:var(--amber); color:#1A1300;}
+
+  /* 순서 이동 버튼 */
+  .move-btn{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text-dim);
+    width:28px; height:28px; border-radius:8px; font-size:12px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .move-btn:active{border-color:var(--amber); color:var(--amber);}
+  .move-btn:disabled{opacity:.3;}
 
   /* 곧 도착 요약 보드 */
   .summary{
@@ -488,13 +497,12 @@
 
   /* ---------- 즐겨찾기 렌더 & 폴링 ---------- */
   const timers = {}; // favId -> intervalId
-  const latest = {}; // favId -> { min, routeName, stationName } (요약 보드용)
+  const latest = {}; // favId -> { min } (요약 보드용)
   const LS_KEY_TAB = 'gbis_tab';
   let currentTab = localStorage.getItem(LS_KEY_TAB) || 'am';
   if (!['am','pm','srt'].includes(currentTab)) currentTab = 'am';
 
-  const GROUP_LABEL = { am: '출근', pm: '퇴근', srt: 'SRT(GTX)', none: '＋ 그룹' };
-  const GROUP_NEXT = { none: 'am', am: 'pm', pm: 'srt', srt: 'none' };
+  const GROUP_LABEL = { am: '출근', pm: '퇴근', srt: 'SRT(GTX)' };
 
   function anyActive(){ return getFavs().some(f => f.active); }
   function inTab(f){
@@ -511,7 +519,7 @@
     list.innerHTML = '';
     empty.style.display = visible.length ? 'none' : 'block';
 
-    visible.forEach(f => {
+    visible.forEach((f, i) => {
       const g = f.group || 'none';
       const card = document.createElement('div');
       card.className = 'fav-card' + (f.active ? ' active' : '');
@@ -522,7 +530,9 @@
             <div class="fav-station"><span>${escapeHtml(f.stationName)}${f.direction ? ' · ' + escapeHtml(f.direction) : ''}</span></div>
           </div>
           <div class="fav-actions">
-            <button class="group-chip ${g}" data-cycle="${f.id}">${GROUP_LABEL[g]}</button>
+            <button class="move-btn" data-up="${f.id}" ${i === 0 ? 'disabled' : ''} aria-label="위로">▲</button>
+            <button class="move-btn" data-down="${f.id}" ${i === visible.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button>
+            ${g !== 'none' ? `<span class="group-chip ${g}">${GROUP_LABEL[g]}</span>` : ''}
             <button class="del-btn" data-del="${f.id}">삭제</button>
           </div>
         </div>
@@ -545,8 +555,11 @@
     list.querySelectorAll('[data-del]').forEach(el => {
       el.addEventListener('click', (e) => { e.stopPropagation(); deleteFav(el.getAttribute('data-del')); });
     });
-    list.querySelectorAll('[data-cycle]').forEach(el => {
-      el.addEventListener('click', (e) => { e.stopPropagation(); cycleGroup(el.getAttribute('data-cycle')); });
+    list.querySelectorAll('[data-up]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); moveFav(el.getAttribute('data-up'), -1); });
+    });
+    list.querySelectorAll('[data-down]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); moveFav(el.getAttribute('data-down'), 1); });
     });
 
     // 화면에 보이는 추적 중 카드는 즉시 데이터 다시 채움
@@ -554,15 +567,20 @@
     renderSummary();
   }
 
-  function cycleGroup(id){
+  // 현재 탭에 보이는 목록 기준으로 한 칸 이동 (실제 저장 배열에서 두 항목 위치 교환)
+  function moveFav(id, dir){
     const favs = getFavs();
-    const f = favs.find(x => x.id === id);
-    if (!f) return;
-    f.group = GROUP_NEXT[f.group || 'none'];
+    const visible = favs.filter(inTab);
+    const vi = visible.findIndex(x => x.id === id);
+    const vj = vi + dir;
+    if (vi === -1 || vj < 0 || vj >= visible.length) return;
+    const ai = favs.findIndex(x => x.id === visible[vi].id);
+    const aj = favs.findIndex(x => x.id === visible[vj].id);
+    const tmp = favs[ai]; favs[ai] = favs[aj]; favs[aj] = tmp;
     setFavs(favs);
     renderFavs();
-    toast(f.group === 'none' ? '그룹 해제' : GROUP_LABEL[f.group] + ' 그룹으로 지정');
   }
+
 
   /* ---------- 곧 도착 요약 보드 ---------- */
   function renderSummary(){
