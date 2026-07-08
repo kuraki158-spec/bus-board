@@ -101,11 +101,40 @@
   .toggle-switch.on ~ .toggle-label{color:var(--green);}
 
   .kakao-btn{
-    margin-left:auto; background:var(--panel-2); border:1px solid var(--line);
+    margin-left:6px; background:var(--panel-2); border:1px solid var(--line);
     color:var(--text-dim); font-size:11.5px; font-weight:700;
     padding:7px 11px; border-radius:999px;
   }
   .kakao-btn:active{border-color:var(--amber); color:var(--amber);}
+
+  .tt-btn{
+    margin-left:auto; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--text-dim); font-size:11.5px; font-weight:700;
+    padding:7px 11px; border-radius:999px;
+  }
+  .tt-btn.has{border-color:var(--green); color:var(--green);}
+  .tt-btn:active{border-color:var(--amber); color:var(--amber);}
+
+  /* 시간표 전체화면 뷰어 */
+  .tt-viewer{position:fixed; inset:0; background:#000; z-index:100; display:flex; flex-direction:column;}
+  .tt-viewer.hidden{display:none;}
+  .tt-viewer .tt-title{
+    padding:14px 16px calc(10px); padding-top:calc(14px + env(safe-area-inset-top));
+    font-size:14px; font-weight:700; color:var(--text);
+    background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .tt-img-wrap{flex:1; overflow:auto; -webkit-overflow-scrolling:touch;}
+  .tt-img-wrap img{width:100%; height:auto; display:block;}
+  .tt-bar{
+    display:flex; gap:8px; padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+    background:var(--panel); border-top:1px solid var(--line);
+  }
+  .tt-bar button{
+    flex:1; padding:13px; border-radius:12px; font-weight:700; font-size:14px;
+    border:1px solid var(--line); background:var(--panel-2); color:var(--text);
+  }
+  #ttDeleteBtn{color:var(--red); border-color:#5A2A2A;}
+  #ttCloseBtn{background:var(--amber); color:#1A1300; border-color:var(--amber);}
 
   .arrival-display{
     margin-top:14px; padding:14px; border-radius:12px;
@@ -351,6 +380,18 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- 시간표 전체화면 뷰어 -->
+  <div class="tt-viewer hidden" id="ttViewer">
+    <div class="tt-title" id="ttTitle">시간표</div>
+    <div class="tt-img-wrap"><img id="ttImage" alt="시간표 이미지"></div>
+    <div class="tt-bar">
+      <button id="ttReplaceBtn">이미지 교체</button>
+      <button id="ttDeleteBtn">삭제</button>
+      <button id="ttCloseBtn">닫기</button>
+    </div>
+  </div>
+  <input type="file" id="ttFileInput" accept="image/*" style="display:none">
 </div>
 
 <script>
@@ -548,6 +589,7 @@
             <div class="knob"></div>
           </div>
           <div class="toggle-label">${f.active ? '실시간 추적 중' : '탭해서 켜기'}</div>
+          <button class="tt-btn${ttHave.has(f.id) ? ' has' : ''}" data-tt="${f.id}">시간표${ttHave.has(f.id) ? '' : ' ＋'}</button>
           <button class="kakao-btn" data-kakao="${f.id}">카카오맵 ↗</button>
         </div>
         <div class="arrival-display" id="arr-${f.id}">
@@ -571,6 +613,9 @@
     });
     list.querySelectorAll('[data-kakao]').forEach(el => {
       el.addEventListener('click', (e) => { e.stopPropagation(); openKakaoMap(el.getAttribute('data-kakao')); });
+    });
+    list.querySelectorAll('[data-tt]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); openTimetable(el.getAttribute('data-tt')); });
     });
 
     // 화면에 보이는 추적 중 카드는 즉시 데이터 다시 채움
@@ -645,6 +690,7 @@
   function deleteFav(id){
     clearInterval(timers[id]); delete timers[id];
     delete latest[id];
+    if (ttHave.has(id)){ ttDelete(id).catch(()=>{}); ttHave.delete(id); }
     setFavs(getFavs().filter(x => x.id !== id));
     renderFavs();
     updateAppIcon(anyActive());
@@ -806,6 +852,133 @@
     location.href = 'kakaomap://search?q=' + encodeURIComponent(q);
   }
 
+  /* ---------- 시간표 이미지 (IndexedDB에 카드별로 저장) ---------- */
+  const ttHave = new Set(); // 이미지가 있는 favId 목록
+  let ttCurrentId = null;   // 뷰어/업로드 대상 favId
+
+  function ttDb(){
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('busboard', 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('timetables'); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function ttGet(id){
+    const db = await ttDb();
+    return new Promise((res, rej) => {
+      const t = db.transaction('timetables').objectStore('timetables').get(id);
+      t.onsuccess = () => res(t.result || null);
+      t.onerror = () => rej(t.error);
+    });
+  }
+  async function ttSet(id, val){
+    const db = await ttDb();
+    return new Promise((res, rej) => {
+      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').put(val, id);
+      t.onsuccess = () => res();
+      t.onerror = () => rej(t.error);
+    });
+  }
+  async function ttDelete(id){
+    const db = await ttDb();
+    return new Promise((res, rej) => {
+      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').delete(id);
+      t.onsuccess = () => res();
+      t.onerror = () => rej(t.error);
+    });
+  }
+  async function ttLoadKeys(){
+    try {
+      const db = await ttDb();
+      const keys = await new Promise((res, rej) => {
+        const t = db.transaction('timetables').objectStore('timetables').getAllKeys();
+        t.onsuccess = () => res(t.result || []);
+        t.onerror = () => rej(t.error);
+      });
+      keys.forEach(k => ttHave.add(k));
+      renderFavs();
+    } catch(e){ /* IndexedDB 미지원 환경 - 시간표 기능만 비활성 */ }
+  }
+
+  // 캡처 이미지를 저장 전 자동 압축 (최대 1600px, JPEG)
+  function ttCompress(file){
+    return new Promise((res, rej) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const max = 1600;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        res(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지를 읽지 못했어요')); };
+      img.src = url;
+    });
+  }
+
+  async function openTimetable(id){
+    ttCurrentId = id;
+    if (!ttHave.has(id)){
+      document.getElementById('ttFileInput').click(); // 이미지 없음 → 바로 업로드
+      return;
+    }
+    try {
+      const dataUrl = await ttGet(id);
+      if (!dataUrl){ ttHave.delete(id); renderFavs(); return; }
+      const f = getFavs().find(x => x.id === id);
+      document.getElementById('ttTitle').textContent =
+        (f ? f.routeName + ' · ' + f.stationName + ' ' : '') + '시간표';
+      document.getElementById('ttImage').src = dataUrl;
+      document.getElementById('ttViewer').classList.remove('hidden');
+    } catch(e){
+      toast('시간표를 불러오지 못했어요');
+    }
+  }
+
+  function closeTimetableViewer(){
+    document.getElementById('ttViewer').classList.add('hidden');
+    document.getElementById('ttImage').src = '';
+  }
+
+  document.getElementById('ttFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // 같은 파일 재선택 가능하게 초기화
+    if (!file || !ttCurrentId) return;
+    try {
+      const dataUrl = await ttCompress(file);
+      await ttSet(ttCurrentId, dataUrl);
+      ttHave.add(ttCurrentId);
+      renderFavs();
+      toast('시간표를 저장했어요');
+      // 뷰어가 열려있는 상태(교체)라면 이미지 즉시 갱신
+      if (!document.getElementById('ttViewer').classList.contains('hidden')){
+        document.getElementById('ttImage').src = dataUrl;
+      }
+    } catch(err){
+      toast('저장 실패: ' + err.message);
+    }
+  });
+
+  document.getElementById('ttReplaceBtn').addEventListener('click', () => {
+    document.getElementById('ttFileInput').click();
+  });
+  document.getElementById('ttDeleteBtn').addEventListener('click', async () => {
+    if (!ttCurrentId) return;
+    if (!confirm('이 시간표 이미지를 삭제할까요?')) return;
+    await ttDelete(ttCurrentId);
+    ttHave.delete(ttCurrentId);
+    closeTimetableViewer();
+    renderFavs();
+    toast('시간표를 삭제했어요');
+  });
+  document.getElementById('ttCloseBtn').addEventListener('click', closeTimetableViewer);
+
   // 정류소 고유번호가 비어있는 기존 즐겨찾기를 앱 시작 시 자동으로 채움
   async function backfillStationNos(){
     if (!getApiKey()) return;
@@ -958,6 +1131,7 @@
   resumeActiveFavs();
   backfillDirections();
   backfillStationNos();
+  ttLoadKeys();
 })();
 </script>
 </body>
