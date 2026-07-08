@@ -100,6 +100,13 @@
   .toggle-label{font-size:13px; font-weight:600; color:var(--text-dim);}
   .toggle-switch.on ~ .toggle-label{color:var(--green);}
 
+  .kakao-btn{
+    margin-left:auto; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--text-dim); font-size:11.5px; font-weight:700;
+    padding:7px 11px; border-radius:999px;
+  }
+  .kakao-btn:active{border-color:var(--amber); color:var(--amber);}
+
   .arrival-display{
     margin-top:14px; padding:14px; border-radius:12px;
     background:#050807; border:1px solid var(--line);
@@ -541,6 +548,7 @@
             <div class="knob"></div>
           </div>
           <div class="toggle-label">${f.active ? '실시간 추적 중' : '탭해서 켜기'}</div>
+          <button class="kakao-btn" data-kakao="${f.id}">카카오맵 ↗</button>
         </div>
         <div class="arrival-display" id="arr-${f.id}">
           <div class="arrival-loading">신호 수신 대기…</div>
@@ -560,6 +568,9 @@
     });
     list.querySelectorAll('[data-down]').forEach(el => {
       el.addEventListener('click', (e) => { e.stopPropagation(); moveFav(el.getAttribute('data-down'), 1); });
+    });
+    list.querySelectorAll('[data-kakao]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); openKakaoMap(el.getAttribute('data-kakao')); });
     });
 
     // 화면에 보이는 추적 중 카드는 즉시 데이터 다시 채움
@@ -786,6 +797,33 @@
     document.getElementById('addStep3').style.display = 'block';
   }
 
+  // 카카오맵 앱을 열어 해당 정류장을 검색된 상태로 표시
+  // 정류소 고유번호(전국 공통)가 있으면 정확히 그 정류장이 뜨고, 없으면 이름으로 검색
+  function openKakaoMap(id){
+    const f = getFavs().find(x => x.id === id);
+    if (!f) return;
+    const q = (f.mobileNo && String(f.mobileNo).trim()) ? String(f.mobileNo).trim() : f.stationName;
+    location.href = 'kakaomap://search?q=' + encodeURIComponent(q);
+  }
+
+  // 정류소 고유번호가 비어있는 기존 즐겨찾기를 앱 시작 시 자동으로 채움
+  async function backfillStationNos(){
+    if (!getApiKey()) return;
+    const favs = getFavs().filter(f => !f.mobileNo);
+    for (const fav of favs){
+      try {
+        const data = await gbisFetch('/busstationservice/v2/busStationInfov2', { stationId: fav.stationId });
+        const infos = collectObjects(data, ['mobileNo']);
+        const no = infos.length ? String(infos[0].mobileNo).trim() : '';
+        if (no){
+          const all = getFavs();
+          const f = all.find(x => x.id === fav.id);
+          if (f && !f.mobileNo){ f.mobileNo = no; setFavs(all); }
+        }
+      } catch(e){ /* 다음 실행 때 재시도 */ }
+    }
+  }
+
   function finalizeFavorite(group){
     const route = pendingRoute;
     if (!route || !pickedStation) return;
@@ -800,6 +838,7 @@
       id,
       stationId: pickedStation.stationId,
       stationName: pickedStation.stationName,
+      mobileNo: (pickedStation.mobileNo ? String(pickedStation.mobileNo).trim() : ''),
       routeId: route.routeId,
       routeName: route.routeName,
       staOrder: route.staOrder,
@@ -918,6 +957,7 @@
   renderFavs();
   resumeActiveFavs();
   backfillDirections();
+  backfillStationNos();
 })();
 </script>
 </body>
