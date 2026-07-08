@@ -192,6 +192,55 @@
     transition:opacity .2s, transform .2s;
   }
   .toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
+
+  /* 출근/퇴근 탭 */
+  .tabs{
+    display:flex; gap:6px; padding:12px 16px 0;
+  }
+  .tab{
+    flex:1; background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+    padding:10px 0; border-radius:12px; font-size:13.5px; font-weight:700;
+  }
+  .tab.active{background:var(--amber); border-color:var(--amber); color:#1A1300;}
+
+  /* 곧 도착 요약 보드 */
+  .summary{
+    margin:0 0 14px; padding:14px 16px 12px; border-radius:16px;
+    background:#050807; border:1px solid var(--green-dim);
+  }
+  .summary.hidden{display:none;}
+  .summary-title{
+    font-size:11px; letter-spacing:.18em; color:var(--green); font-weight:700;
+    text-transform:uppercase; margin-bottom:8px;
+  }
+  .summary-row{
+    display:flex; align-items:baseline; gap:10px; padding:7px 0;
+  }
+  .summary-row + .summary-row{border-top:1px dashed var(--line);}
+  .s-route{font-size:18px; font-weight:800; min-width:64px;}
+  .s-min{
+    font-family:'Share Tech Mono', monospace; font-size:18px; color:var(--green);
+    text-shadow:0 0 10px rgba(0,230,118,.45);
+  }
+  .s-station{font-size:11.5px; color:var(--text-faint); margin-left:auto; text-align:right;}
+  .summary-waiting{font-size:12.5px; color:var(--text-faint); padding:4px 0;}
+
+  /* 카드의 그룹 칩 */
+  .fav-actions{display:flex; align-items:center; gap:4px; flex:none;}
+  .group-chip{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text-dim);
+    font-size:11px; font-weight:700; padding:5px 10px; border-radius:999px;
+  }
+  .group-chip.am{border-color:var(--amber); color:var(--amber);}
+  .group-chip.pm{border-color:#7FB4FF; color:#7FB4FF;}
+
+  /* 저장 시 그룹 선택 버튼 */
+  .group-pick{display:flex; flex-direction:column; gap:8px; margin-top:14px;}
+  .group-pick button{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:14px; border-radius:12px; font-size:15px; font-weight:700; text-align:center;
+  }
+  .group-pick button:active{border-color:var(--amber);}
 </style>
 </head>
 <body>
@@ -204,7 +253,17 @@
     <button class="icon-btn" id="settingsBtn" aria-label="설정">⚙</button>
   </header>
 
+  <nav class="tabs">
+    <button class="tab active" data-tab="all">전체</button>
+    <button class="tab" data-tab="am">출근</button>
+    <button class="tab" data-tab="pm">퇴근</button>
+  </nav>
+
   <main>
+    <div class="summary hidden" id="summaryBoard">
+      <div class="summary-title">곧 도착</div>
+      <div id="summaryRows"></div>
+    </div>
     <div id="favList"></div>
     <div class="empty-state" id="emptyState" style="display:none;">
       <div class="glyph">🚏</div>
@@ -235,6 +294,17 @@
         <p class="sub">이 정류소를 지나는 노선 중 즐겨찾을 버스를 고르세요.</p>
         <input type="text" id="routeFilterInput" placeholder="버스 번호로 필터 (예: 720)">
         <div class="result-list" id="routeResults"></div>
+      </div>
+
+      <div id="addStep3" style="display:none;">
+        <button class="step-back" id="backToStep2">‹ 노선 다시 선택</button>
+        <h2>언제 타는 버스인가요?</h2>
+        <p class="sub">출근·퇴근 탭에서 나눠 볼 수 있어요.</p>
+        <div class="group-pick">
+          <button data-pick-group="am">🌅 출근</button>
+          <button data-pick-group="pm">🌙 퇴근</button>
+          <button data-pick-group="none">구분 없이 저장</button>
+        </div>
       </div>
     </div>
   </div>
@@ -419,26 +489,41 @@
 
   /* ---------- 즐겨찾기 렌더 & 폴링 ---------- */
   const timers = {}; // favId -> intervalId
+  const latest = {}; // favId -> { min, routeName, stationName } (요약 보드용)
+  const LS_KEY_TAB = 'gbis_tab';
+  let currentTab = localStorage.getItem(LS_KEY_TAB) || 'all';
+
+  const GROUP_LABEL = { am: '출근', pm: '퇴근', none: '＋ 그룹' };
+  const GROUP_NEXT = { none: 'am', am: 'pm', pm: 'none' };
 
   function anyActive(){ return getFavs().some(f => f.active); }
+  function inTab(f){
+    if (currentTab === 'all') return true;
+    return (f.group || 'none') === currentTab;
+  }
 
   function renderFavs(){
     const favs = getFavs();
+    const visible = favs.filter(inTab);
     const list = document.getElementById('favList');
     const empty = document.getElementById('emptyState');
     list.innerHTML = '';
-    empty.style.display = favs.length ? 'none' : 'block';
+    empty.style.display = visible.length ? 'none' : 'block';
 
-    favs.forEach(f => {
+    visible.forEach(f => {
+      const g = f.group || 'none';
       const card = document.createElement('div');
       card.className = 'fav-card' + (f.active ? ' active' : '');
       card.innerHTML = `
         <div class="fav-top">
           <div>
             <div class="fav-route">${escapeHtml(f.routeName)}</div>
-            <div class="fav-station"><span>${escapeHtml(f.stationName)}</span></div>
+            <div class="fav-station"><span>${escapeHtml(f.stationName)}${f.direction ? ' · ' + escapeHtml(f.direction) : ''}</span></div>
           </div>
-          <button class="del-btn" data-del="${f.id}">삭제</button>
+          <div class="fav-actions">
+            <button class="group-chip ${g}" data-cycle="${f.id}">${GROUP_LABEL[g]}</button>
+            <button class="del-btn" data-del="${f.id}">삭제</button>
+          </div>
         </div>
         <div class="toggle-row">
           <div class="toggle-switch ${f.active ? 'on' : ''}" data-toggle="${f.id}">
@@ -459,6 +544,49 @@
     list.querySelectorAll('[data-del]').forEach(el => {
       el.addEventListener('click', (e) => { e.stopPropagation(); deleteFav(el.getAttribute('data-del')); });
     });
+    list.querySelectorAll('[data-cycle]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); cycleGroup(el.getAttribute('data-cycle')); });
+    });
+
+    // 화면에 보이는 추적 중 카드는 즉시 데이터 다시 채움
+    visible.forEach(f => { if (f.active) pollArrival(f.id); });
+    renderSummary();
+  }
+
+  function cycleGroup(id){
+    const favs = getFavs();
+    const f = favs.find(x => x.id === id);
+    if (!f) return;
+    f.group = GROUP_NEXT[f.group || 'none'];
+    setFavs(favs);
+    renderFavs();
+    toast(f.group === 'none' ? '그룹 해제' : GROUP_LABEL[f.group] + ' 그룹으로 지정');
+  }
+
+  /* ---------- 곧 도착 요약 보드 ---------- */
+  function renderSummary(){
+    const board = document.getElementById('summaryBoard');
+    const rowsEl = document.getElementById('summaryRows');
+    const actives = getFavs().filter(f => f.active && inTab(f));
+    if (!actives.length){
+      board.classList.add('hidden');
+      return;
+    }
+    board.classList.remove('hidden');
+    const entries = actives.map(f => ({ fav: f, data: latest[f.id] }));
+    const ready = entries.filter(e => e.data && !isNaN(e.data.min)).sort((a,b) => a.data.min - b.data.min);
+    const waiting = entries.filter(e => !e.data || isNaN(e.data.min));
+
+    let html = ready.map(e => `
+      <div class="summary-row">
+        <span class="s-route">${escapeHtml(e.fav.routeName)}</span>
+        <span class="s-min">${e.data.min <= 0 ? '곧 도착' : e.data.min + '분 후'}</span>
+        <span class="s-station">${escapeHtml(e.fav.stationName)}</span>
+      </div>`).join('');
+    if (waiting.length){
+      html += `<div class="summary-waiting">${waiting.map(e => escapeHtml(e.fav.routeName)).join(', ')} · 수신 대기 중…</div>`;
+    }
+    rowsEl.innerHTML = html;
   }
 
   function escapeHtml(s){
@@ -471,6 +599,7 @@
     if (!f) return;
     f.active = !f.active;
     setFavs(favs);
+    if (!f.active) delete latest[id];
     renderFavs();
     updateAppIcon(anyActive());
 
@@ -485,6 +614,7 @@
 
   function deleteFav(id){
     clearInterval(timers[id]); delete timers[id];
+    delete latest[id];
     setFavs(getFavs().filter(x => x.id !== id));
     renderFavs();
     updateAppIcon(anyActive());
@@ -494,13 +624,15 @@
     const f = getFavs().find(x => x.id === id);
     if (!f || !f.active) return;
     const box = document.getElementById('arr-' + id);
-    if (!box) return;
     try {
       const item = await getArrival(f.stationId, f.routeId, f.staOrder);
       if (!item){
-        box.innerHTML = `<div class="arrival-status err">이 시간대 운행 정보가 없어요</div>`;
+        delete latest[id];
+        if (box) box.innerHTML = `<div class="arrival-status err">이 시간대 운행 정보가 없어요</div>`;
+        renderSummary();
         return;
       }
+      latest[id] = { min: Number(item.predictTime1) };
       const rows = [];
       if (item.predictTime1 !== undefined){
         rows.push(arrivalRow(item.predictTime1, item.locationNo1));
@@ -508,10 +640,15 @@
       if (item.predictTime2 !== undefined){
         rows.push(arrivalRow(item.predictTime2, item.locationNo2));
       }
-      box.innerHTML = rows.join('') +
-        `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}${lastSource ? ' · 출처: ' + lastSource : ''}</div>`;
+      if (box){
+        box.innerHTML = rows.join('') +
+          `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
+      }
+      renderSummary();
     } catch(err){
-      box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+      delete latest[id];
+      if (box) box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+      renderSummary();
     }
   }
 
@@ -543,6 +680,7 @@
     document.getElementById('addModal').classList.remove('hidden');
     document.getElementById('addStep1').style.display = 'block';
     document.getElementById('addStep2').style.display = 'none';
+    document.getElementById('addStep3').style.display = 'none';
     document.getElementById('stationInput').value = '';
     document.getElementById('stationResults').innerHTML = '';
     document.getElementById('stationInput').focus();
@@ -610,7 +748,18 @@
     });
   }
 
+  let pendingRoute = null;
+
   function saveFavorite(route){
+    // 노선 선택 → 그룹 선택 단계로
+    pendingRoute = route;
+    document.getElementById('addStep2').style.display = 'none';
+    document.getElementById('addStep3').style.display = 'block';
+  }
+
+  function finalizeFavorite(group){
+    const route = pendingRoute;
+    if (!route || !pickedStation) return;
     const favs = getFavs();
     const id = pickedStation.stationId + '-' + route.routeId + '-' + route.staOrder;
     if (favs.some(x => x.id === id)){
@@ -618,19 +767,44 @@
       closeAddModal();
       return;
     }
-    favs.push({
+    const fav = {
       id,
       stationId: pickedStation.stationId,
       stationName: pickedStation.stationName,
       routeId: route.routeId,
       routeName: route.routeName,
       staOrder: route.staOrder,
+      group: group,
+      direction: '',
       active: false
-    });
+    };
+    favs.push(fav);
     setFavs(favs);
     renderFavs();
     closeAddModal();
     toast('즐겨찾기에 추가했어요');
+    fillDirection(fav); // 방면 정보는 백그라운드로 조회
+  }
+
+  // 노선 경유 정류소 목록에서 "다음 정류소"를 찾아 방면으로 저장
+  // ("경기도_버스노선 조회" 활용신청이 안 되어 있으면 조용히 생략됨)
+  async function fillDirection(fav){
+    try {
+      const data = await gbisFetch('/busrouteservice/v2/getBusRouteStationListv2', { routeId: fav.routeId });
+      const stops = collectObjects(data, ['stationId', 'stationName']);
+      if (!stops.length) return;
+      let idx = stops.findIndex(s =>
+        String(s.stationId) === String(fav.stationId) &&
+        (s.staOrder === undefined || String(s.staOrder) === String(fav.staOrder)));
+      if (idx === -1) idx = stops.findIndex(s => String(s.stationId) === String(fav.stationId));
+      if (idx === -1) return;
+      const direction = (idx < stops.length - 1)
+        ? stops[idx + 1].stationName + ' 방면'
+        : '종점';
+      const favs = getFavs();
+      const f = favs.find(x => x.id === fav.id);
+      if (f){ f.direction = direction; setFavs(favs); renderFavs(); }
+    } catch(e){ /* 노선조회 미신청 등 - 방면 없이 진행 */ }
   }
 
   /* ---------- 설정 / API 키 ---------- */
@@ -652,6 +826,22 @@
   document.getElementById('backToStep1').addEventListener('click', () => {
     document.getElementById('addStep1').style.display = 'block';
     document.getElementById('addStep2').style.display = 'none';
+    document.getElementById('addStep3').style.display = 'none';
+  });
+  document.getElementById('backToStep2').addEventListener('click', () => {
+    document.getElementById('addStep2').style.display = 'block';
+    document.getElementById('addStep3').style.display = 'none';
+  });
+  document.querySelectorAll('[data-pick-group]').forEach(el => {
+    el.addEventListener('click', () => finalizeFavorite(el.getAttribute('data-pick-group')));
+  });
+  document.querySelectorAll('.tab').forEach(el => {
+    el.addEventListener('click', () => {
+      currentTab = el.getAttribute('data-tab');
+      localStorage.setItem(LS_KEY_TAB, currentTab);
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === el));
+      renderFavs();
+    });
   });
   document.getElementById('routeFilterInput').addEventListener('input', e => renderRouteResults(e.target.value));
 
@@ -671,6 +861,7 @@
   });
 
   /* ---------- 초기화 ---------- */
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.getAttribute('data-tab') === currentTab));
   checkGate();
   renderFavs();
   resumeActiveFavs();
