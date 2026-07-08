@@ -8,9 +8,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link id="faviconLink" rel="icon" type="image/png" href="">
-<link id="appleTouchIcon" rel="apple-touch-icon" href="">
-<link id="manifestLink" rel="manifest" href="">
+<link id="faviconLink" rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest.json">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbit&family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -339,7 +339,7 @@
 (function(){
   "use strict";
 
-  /* ---------- 아이콘 / 매니페스트 (동적 생성) ---------- */
+  /* ---------- 아이콘 (탭/최근앱 표시용 동적 파비콘) ---------- */
   function makeIconDataUrl(color, size){
     const c = document.createElement('canvas'); c.width=size; c.height=size;
     const ctx = c.getContext('2d');
@@ -353,24 +353,15 @@
   }
   const iconOff = makeIconDataUrl('#3a4547', 512);
   const iconOn = makeIconDataUrl('#00e676', 512);
-  document.getElementById('appleTouchIcon').href = iconOff;
-
-  function setManifest(iconUrl){
-    const manifest = {
-      name: "버스알림판", short_name: "버스알림판",
-      start_url: ".", display: "standalone",
-      background_color: "#0A0E0F", theme_color: "#0A0E0F",
-      icons: [{ src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any" }]
-    };
-    const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
-    document.getElementById('manifestLink').href = URL.createObjectURL(blob);
-  }
-  setManifest(iconOff);
 
   function updateAppIcon(active){
     document.getElementById('faviconLink').href = active ? iconOn : iconOff;
     document.getElementById('themeColorMeta').content = active ? '#04140B' : '#0A0E0F';
-    setManifest(active ? iconOn : iconOff);
+  }
+
+  /* ---------- PWA 서비스 워커 등록 ---------- */
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/sw.js').catch(function(){ /* http 로컬 등 미지원 환경 무시 */ });
   }
 
   /* ---------- 저장소 ---------- */
