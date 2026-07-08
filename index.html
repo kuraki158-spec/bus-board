@@ -341,19 +341,31 @@
     catch(e){ throw new Error('서버 응답 해석 실패 · ' + text.slice(0, 180)); }
   }
 
+  // 성공한 경로를 기억해서 다음 요청부터 바로 사용 (속도 개선)
+  const LS_KEY_ROUTE = 'gbis_route_pref';
+  let lastSource = ''; // 최근 성공한 데이터 출처 표시용
+
   async function gbisFetch(path, params){
     const p = new URLSearchParams(Object.assign({ serviceKey: getApiKey(), format: 'json' }, params));
     const qs = '?' + p.toString();
-    let data, directErr;
-    try {
-      data = await rawFetchJson(GBIS_DIRECT + path + qs, 9000);
-    } catch(e1){
-      directErr = e1;
+    const pref = localStorage.getItem(LS_KEY_ROUTE) || 'direct';
+    const order = pref === 'proxy' ? ['proxy', 'direct'] : ['direct', 'proxy'];
+    const errs = [];
+    let data = null;
+    for (const mode of order){
+      const base = mode === 'direct' ? GBIS_DIRECT : GBIS_PROXY;
+      const timeout = mode === 'direct' ? 6000 : 12000;
       try {
-        data = await rawFetchJson(GBIS_PROXY + path + qs, 12000);
-      } catch(e2){
-        throw new Error('직접호출(' + directErr.message + ') / 프록시(' + e2.message + ')');
+        data = await rawFetchJson(base + path + qs, timeout);
+        localStorage.setItem(LS_KEY_ROUTE, mode);
+        lastSource = mode === 'direct' ? '직접 호출' : '중계 서버(서울)';
+        break;
+      } catch(e){
+        errs.push((mode === 'direct' ? '직접호출' : '프록시') + '(' + e.message + ')');
       }
+    }
+    if (data === null){
+      throw new Error(errs.join(' / '));
     }
     const header = collectObjects(data, ['resultCode']);
     if (header.length){
@@ -497,7 +509,7 @@
         rows.push(arrivalRow(item.predictTime2, item.locationNo2));
       }
       box.innerHTML = rows.join('') +
-        `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
+        `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}${lastSource ? ' · 출처: ' + lastSource : ''}</div>`;
     } catch(err){
       box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
     }
