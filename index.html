@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>버스알림판</title>
+<meta name="theme-color" id="themeColorMeta" content="#0A0E0F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link id="faviconLink" rel="icon" type="image/png" href="">
+<link id="appleTouchIcon" rel="apple-touch-icon" href="">
+<link id="manifestLink" rel="manifest" href="">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --bg:#0A0E0F;
+    --panel:#12181A;
+    --panel-2:#171F21;
+    --line:#232C2E;
+    --amber:#FFB000;
+    --amber-dim:#5C4200;
+    --green:#00E676;
+    --green-dim:#0A3D24;
+    --red:#FF4B4B;
+    --text:#E8EDEE;
+    --text-dim:#7C8A8D;
+    --text-faint:#4A5658;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; overscroll-behavior:none;}
+  body{
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #app{max-width:480px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column;}
+
+  header{
+    padding:20px 20px 14px;
+    display:flex; align-items:center; justify-content:space-between;
+    border-bottom:1px solid var(--line);
+  }
+  header .brand{display:flex; flex-direction:column; gap:2px;}
+  header .brand .eyebrow{font-size:11px; letter-spacing:.18em; color:var(--amber); font-weight:600; text-transform:uppercase;}
+  header .brand h1{font-size:20px; margin:0; font-weight:800; letter-spacing:-.01em;}
+  header button.icon-btn{
+    background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+    width:40px; height:40px; border-radius:12px; font-size:18px;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  main{flex:1; padding:16px; padding-bottom:100px;}
+
+  .empty-state{
+    margin-top:60px; text-align:center; color:var(--text-dim); padding:0 24px;
+  }
+  .empty-state .glyph{font-size:40px; margin-bottom:14px; opacity:.6;}
+  .empty-state p{font-size:14px; line-height:1.6; margin:0;}
+
+  .fav-card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:16px 16px 14px;
+    margin-bottom:12px;
+    position:relative;
+    transition:border-color .25s, box-shadow .25s, background .25s;
+  }
+  .fav-card.active{
+    border-color:var(--green);
+    background:linear-gradient(180deg, rgba(0,230,118,0.07), var(--panel) 60%);
+    box-shadow:0 0 0 1px rgba(0,230,118,0.15), 0 8px 24px -12px rgba(0,230,118,0.35);
+  }
+  .fav-top{display:flex; justify-content:space-between; align-items:flex-start; gap:10px;}
+  .fav-route{font-size:22px; font-weight:800; letter-spacing:-.02em; line-height:1.15;}
+  .fav-station{font-size:12.5px; color:var(--text-dim); margin-top:3px; display:flex; align-items:center; gap:5px;}
+  .fav-station .dot{width:4px; height:4px; border-radius:50%; background:var(--text-faint); flex:none;}
+
+  .del-btn{
+    background:none; border:none; color:var(--text-faint); font-size:12px;
+    padding:4px 6px;
+  }
+
+  .toggle-row{
+    margin-top:14px; display:flex; align-items:center; gap:12px;
+  }
+  .toggle-switch{
+    flex:none; width:56px; height:32px; border-radius:16px;
+    background:var(--panel-2); border:1px solid var(--line);
+    position:relative; transition:background .25s, border-color .25s;
+  }
+  .toggle-switch .knob{
+    position:absolute; top:2px; left:2px; width:26px; height:26px; border-radius:50%;
+    background:var(--text-faint); transition:transform .25s, background .25s;
+  }
+  .toggle-switch.on{background:var(--green-dim); border-color:var(--green);}
+  .toggle-switch.on .knob{transform:translateX(24px); background:var(--green); box-shadow:0 0 10px rgba(0,230,118,.7);}
+
+  .toggle-label{font-size:13px; font-weight:600; color:var(--text-dim);}
+  .toggle-switch.on ~ .toggle-label{color:var(--green);}
+
+  .arrival-display{
+    margin-top:14px; padding:14px; border-radius:12px;
+    background:#050807; border:1px solid var(--line);
+    display:none;
+  }
+  .fav-card.active .arrival-display{display:block;}
+  .arrival-row{display:flex; justify-content:space-between; align-items:baseline; padding:6px 0;}
+  .arrival-row + .arrival-row{border-top:1px dashed var(--line);}
+  .arrival-min{
+    font-family:'Share Tech Mono', monospace; font-size:26px; color:var(--green);
+    text-shadow:0 0 12px rgba(0,230,118,.55);
+  }
+  .arrival-min small{font-size:13px; margin-left:4px; color:var(--text-dim); font-family:'Inter',sans-serif;}
+  .arrival-stops{font-size:12px; color:var(--text-dim); font-family:'Share Tech Mono', monospace;}
+  .arrival-status{font-size:12px; color:var(--text-faint); margin-top:8px; text-align:right;}
+  .arrival-status.err{color:var(--red);}
+  .arrival-loading{color:var(--amber); font-family:'Share Tech Mono', monospace; font-size:14px; letter-spacing:.05em;}
+
+  .fab{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+    width:calc(100% - 32px); max-width:448px;
+    background:var(--amber); color:#1A1300; border:none;
+    padding:16px; border-radius:16px; font-size:15px; font-weight:700;
+    box-shadow:0 10px 30px -8px rgba(255,176,0,.5);
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+
+  /* modal */
+  .modal{
+    position:fixed; inset:0; background:rgba(5,7,7,.7); backdrop-filter:blur(3px);
+    display:flex; align-items:flex-end; z-index:50;
+  }
+  .modal.hidden{display:none;}
+  .sheet{
+    background:var(--panel); width:100%; max-width:480px; margin:0 auto;
+    border-radius:22px 22px 0 0; padding:20px 18px calc(24px + env(safe-area-inset-bottom));
+    max-height:88vh; overflow-y:auto; border-top:1px solid var(--line);
+  }
+  .sheet h2{font-size:17px; margin:0 0 4px; font-weight:800;}
+  .sheet .sub{font-size:12.5px; color:var(--text-dim); margin:0 0 16px;}
+  .sheet-close{
+    display:flex; justify-content:flex-end; margin-bottom:2px;
+  }
+  .sheet-close button{background:none; border:none; color:var(--text-dim); font-size:14px; padding:6px;}
+
+  input[type=text], input[type=password]{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:13px 14px; border-radius:12px; font-size:15px; outline:none;
+  }
+  input[type=text]:focus, input[type=password]:focus{border-color:var(--amber);}
+
+  .search-row{display:flex; gap:8px;}
+  .search-row input{flex:1;}
+  .search-row button{
+    background:var(--amber); color:#1A1300; border:none; padding:0 18px; border-radius:12px; font-weight:700; font-size:14px;
+  }
+
+  .result-list{margin-top:14px; display:flex; flex-direction:column; gap:8px;}
+  .result-item{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:12px;
+    padding:12px 14px; display:flex; flex-direction:column; gap:2px; text-align:left;
+    width:100%; color:var(--text);
+  }
+  .result-item .rname{font-size:15px; font-weight:700;}
+  .result-item .rmeta{font-size:11.5px; color:var(--text-dim);}
+  .result-item:active{border-color:var(--amber);}
+
+  .step-back{font-size:12.5px; color:var(--amber); background:none; border:none; padding:6px 0 12px; text-align:left;}
+
+  .hint{font-size:12px; color:var(--text-faint); line-height:1.6; margin-top:14px;}
+  .hint a{color:var(--amber);}
+
+  .loading-row{display:flex; align-items:center; gap:8px; padding:14px 4px; color:var(--text-dim); font-size:13px;}
+  .spinner{
+    width:14px; height:14px; border-radius:50%; border:2px solid var(--line); border-top-color:var(--amber);
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .save-btn{
+    width:100%; margin-top:16px; background:var(--green); color:#04140B; border:none;
+    padding:14px; border-radius:12px; font-weight:800; font-size:15px;
+  }
+  .save-btn:disabled{background:var(--panel-2); color:var(--text-faint);}
+
+  .toast{
+    position:fixed; left:50%; bottom:96px; transform:translateX(-50%);
+    background:#1A2224; border:1px solid var(--line); color:var(--text);
+    padding:10px 16px; border-radius:10px; font-size:13px; z-index:80; opacity:0; pointer-events:none;
+    transition:opacity .2s, transform .2s;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <span class="eyebrow">Gyeonggi Bus · 실시간</span>
+      <h1>버스알림판</h1>
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="설정">⚙</button>
+  </header>
+
+  <main>
+    <div id="favList"></div>
+    <div class="empty-state" id="emptyState" style="display:none;">
+      <div class="glyph">🚏</div>
+      <p>즐겨찾는 정류소와 버스를 추가하면<br>여기에서 바로 켜고 끌 수 있어요.</p>
+    </div>
+  </main>
+
+  <button class="fab" id="addFabBtn">+ 정류소·버스 추가</button>
+
+  <!-- 즐겨찾기 추가 모달 -->
+  <div class="modal hidden" id="addModal">
+    <div class="sheet">
+      <div class="sheet-close"><button id="addCloseBtn">닫기 ✕</button></div>
+
+      <div id="addStep1">
+        <h2>정류소 검색</h2>
+        <p class="sub">정류소 이름이나 번호로 찾아보세요.</p>
+        <div class="search-row">
+          <input type="text" id="stationInput" placeholder="예) 정자역, 12345">
+          <button id="stationSearchBtn">검색</button>
+        </div>
+        <div class="result-list" id="stationResults"></div>
+      </div>
+
+      <div id="addStep2" style="display:none;">
+        <button class="step-back" id="backToStep1">‹ 정류소 다시 검색</button>
+        <h2 id="step2Title">노선 선택</h2>
+        <p class="sub">이 정류소를 지나는 노선 중 즐겨찾을 버스를 고르세요.</p>
+        <input type="text" id="routeFilterInput" placeholder="버스 번호로 필터 (예: 720)">
+        <div class="result-list" id="routeResults"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 설정 모달 -->
+  <div class="modal hidden" id="settingsModal">
+    <div class="sheet">
+      <div class="sheet-close"><button id="settingsCloseBtn">닫기 ✕</button></div>
+      <h2>공공데이터포털 API 키</h2>
+      <p class="sub">data.go.kr에서 발급받은 <b>일반 인증키(Decoding)</b>를 입력하세요.</p>
+      <input type="password" id="apiKeyInput" placeholder="서비스 키를 붙여넣으세요">
+      <button class="save-btn" id="apiKeySaveBtn">저장</button>
+      <p class="hint">키가 없다면 data.go.kr에서 "경기도_버스도착정보 조회" 검색 → 활용신청 → 마이페이지에서 발급받은 <b>디코딩</b> 키를 복사해 붙여넣으세요.</p>
+    </div>
+  </div>
+
+  <!-- 최초 실행 게이트 -->
+  <div class="modal" id="apiKeyGate">
+    <div class="sheet">
+      <h2>먼저 API 키를 등록해주세요</h2>
+      <p class="sub">경기버스 실시간 정보를 받아오려면 공공데이터포털 인증키가 필요해요.</p>
+      <input type="password" id="gateApiKeyInput" placeholder="서비스 키를 붙여넣으세요">
+      <button class="save-btn" id="gateSaveBtn">시작하기</button>
+      <p class="hint">data.go.kr → "경기도_버스도착정보 조회" 검색 → 활용신청 → <b>일반 인증키(Decoding)</b> 복사</p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- 아이콘 / 매니페스트 (동적 생성) ---------- */
+  function makeIconDataUrl(color, size){
+    const c = document.createElement('canvas'); c.width=size; c.height=size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0A0E0F'; ctx.beginPath(); ctx.arc(size/2,size/2,size/2,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(size/2,size/2,size/2-size*0.07,0,7);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.font = (size*0.52)+'px sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('🚌', size/2, size/2+size*0.03);
+    return c.toDataURL('image/png');
+  }
+  const iconOff = makeIconDataUrl('#3a4547', 512);
+  const iconOn = makeIconDataUrl('#00e676', 512);
+  document.getElementById('appleTouchIcon').href = iconOff;
+
+  function setManifest(iconUrl){
+    const manifest = {
+      name: "버스알림판", short_name: "버스알림판",
+      start_url: ".", display: "standalone",
+      background_color: "#0A0E0F", theme_color: "#0A0E0F",
+      icons: [{ src: iconUrl, sizes: "512x512", type: "image/png", purpose: "any" }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    document.getElementById('manifestLink').href = URL.createObjectURL(blob);
+  }
+  setManifest(iconOff);
+
+  function updateAppIcon(active){
+    document.getElementById('faviconLink').href = active ? iconOn : iconOff;
+    document.getElementById('themeColorMeta').content = active ? '#04140B' : '#0A0E0F';
+    setManifest(active ? iconOn : iconOff);
+  }
+
+  /* ---------- 저장소 ---------- */
+  const LS_KEY_API = 'gbis_api_key';
+  const LS_KEY_FAVS = 'gbis_favorites';
+
+  function getApiKey(){ return localStorage.getItem(LS_KEY_API) || ''; }
+  function setApiKey(v){ localStorage.setItem(LS_KEY_API, v); }
+  function getFavs(){
+    try { return JSON.parse(localStorage.getItem(LS_KEY_FAVS)) || []; }
+    catch(e){ return []; }
+  }
+  function setFavs(list){ localStorage.setItem(LS_KEY_FAVS, JSON.stringify(list)); }
+
+  /* ---------- GBIS API ----------
+     1차: 폰/PC에서 apis.data.go.kr 직접 호출 (사용자의 한국 IP → 차단 없음, CORS 허용 시 성공)
+     2차: 같은 서버의 /api 프록시 경유 (CORS 차단 시 대비) */
+  const GBIS_DIRECT = "https://apis.data.go.kr/6410000";
+  const GBIS_PROXY = "/api";
+  const EP_STATION_SEARCH = "/busstationservice/v2/getBusStationListv2";
+  const EP_STATION_ROUTES = "/busstationservice/v2/getBusStationViaRouteListv2";
+  const EP_ARRIVAL = "/busarrivalservice/v2/getBusArrivalItemv2";
+
+  async function fetchWithTimeout(url, ms){
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try { return await fetch(url, { signal: ctrl.signal }); }
+    finally { clearTimeout(t); }
+  }
+
+  async function rawFetchJson(fullUrl, timeoutMs){
+    const res = await fetchWithTimeout(fullUrl, timeoutMs);
+    const text = await res.text();
+    if (!res.ok){
+      throw new Error('HTTP ' + res.status + (text ? ' · ' + text.slice(0, 180) : ''));
+    }
+    try { return JSON.parse(text); }
+    catch(e){ throw new Error('서버 응답 해석 실패 · ' + text.slice(0, 180)); }
+  }
+
+  async function gbisFetch(path, params){
+    const p = new URLSearchParams(Object.assign({ serviceKey: getApiKey(), format: 'json' }, params));
+    const qs = '?' + p.toString();
+    let data, directErr;
+    try {
+      data = await rawFetchJson(GBIS_DIRECT + path + qs, 9000);
+    } catch(e1){
+      directErr = e1;
+      try {
+        data = await rawFetchJson(GBIS_PROXY + path + qs, 12000);
+      } catch(e2){
+        throw new Error('직접호출(' + directErr.message + ') / 프록시(' + e2.message + ')');
+      }
+    }
+    const header = collectObjects(data, ['resultCode']);
+    if (header.length){
+      const code = String(header[0].resultCode);
+      // 0 = 정상, 4 = 결과 없음(정상 처리)
+      if (code !== '0' && code !== '4'){
+        throw new Error(header[0].resultMessage || 'API 오류 (코드 ' + code + ')');
+      }
+    }
+    return data;
+  }
+
+  // 응답 구조가 케이스마다 달라질 수 있어, 필요한 키를 가진 객체를 재귀적으로 모두 수집
+  function collectObjects(node, requiredKeys, out){
+    out = out || [];
+    if (Array.isArray(node)){
+      node.forEach(n => collectObjects(n, requiredKeys, out));
+    } else if (node && typeof node === 'object'){
+      if (requiredKeys.every(k => k in node)) out.push(node);
+      Object.values(node).forEach(v => {
+        if (v && typeof v === 'object') collectObjects(v, requiredKeys, out);
+      });
+    }
+    return out;
+  }
+
+  async function searchStations(keyword){
+    const data = await gbisFetch(EP_STATION_SEARCH, { keyword });
+    return collectObjects(data, ['stationId', 'stationName']);
+  }
+
+  async function getRoutesAtStation(stationId){
+    const data = await gbisFetch(EP_STATION_ROUTES, { stationId });
+    return collectObjects(data, ['routeId', 'routeName']);
+  }
+
+  async function getArrival(stationId, routeId, staOrder){
+    const data = await gbisFetch(EP_ARRIVAL, { stationId, routeId, staOrder });
+    const items = collectObjects(data, ['predictTime1']);
+    return items[0] || null;
+  }
+
+  /* ---------- 토스트 ---------- */
+  let toastTimer;
+  function toast(msg){
+    const el = document.getElementById('toast');
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+  }
+
+  /* ---------- 즐겨찾기 렌더 & 폴링 ---------- */
+  const timers = {}; // favId -> intervalId
+
+  function anyActive(){ return getFavs().some(f => f.active); }
+
+  function renderFavs(){
+    const favs = getFavs();
+    const list = document.getElementById('favList');
+    const empty = document.getElementById('emptyState');
+    list.innerHTML = '';
+    empty.style.display = favs.length ? 'none' : 'block';
+
+    favs.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'fav-card' + (f.active ? ' active' : '');
+      card.innerHTML = `
+        <div class="fav-top">
+          <div>
+            <div class="fav-route">${escapeHtml(f.routeName)}</div>
+            <div class="fav-station"><span>${escapeHtml(f.stationName)}</span></div>
+          </div>
+          <button class="del-btn" data-del="${f.id}">삭제</button>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-switch ${f.active ? 'on' : ''}" data-toggle="${f.id}">
+            <div class="knob"></div>
+          </div>
+          <div class="toggle-label">${f.active ? '실시간 추적 중' : '탭해서 켜기'}</div>
+        </div>
+        <div class="arrival-display" id="arr-${f.id}">
+          <div class="arrival-loading">신호 수신 대기…</div>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+
+    list.querySelectorAll('[data-toggle]').forEach(el => {
+      el.addEventListener('click', () => toggleFav(el.getAttribute('data-toggle')));
+    });
+    list.querySelectorAll('[data-del]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); deleteFav(el.getAttribute('data-del')); });
+    });
+  }
+
+  function escapeHtml(s){
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function toggleFav(id){
+    const favs = getFavs();
+    const f = favs.find(x => x.id === id);
+    if (!f) return;
+    f.active = !f.active;
+    setFavs(favs);
+    renderFavs();
+    updateAppIcon(anyActive());
+
+    if (f.active){
+      pollArrival(f.id);
+      timers[id] = setInterval(() => pollArrival(id), 25000);
+    } else {
+      clearInterval(timers[id]);
+      delete timers[id];
+    }
+  }
+
+  function deleteFav(id){
+    clearInterval(timers[id]); delete timers[id];
+    setFavs(getFavs().filter(x => x.id !== id));
+    renderFavs();
+    updateAppIcon(anyActive());
+  }
+
+  async function pollArrival(id){
+    const f = getFavs().find(x => x.id === id);
+    if (!f || !f.active) return;
+    const box = document.getElementById('arr-' + id);
+    if (!box) return;
+    try {
+      const item = await getArrival(f.stationId, f.routeId, f.staOrder);
+      if (!item){
+        box.innerHTML = `<div class="arrival-status err">이 시간대 운행 정보가 없어요</div>`;
+        return;
+      }
+      const rows = [];
+      if (item.predictTime1 !== undefined){
+        rows.push(arrivalRow(item.predictTime1, item.locationNo1));
+      }
+      if (item.predictTime2 !== undefined){
+        rows.push(arrivalRow(item.predictTime2, item.locationNo2));
+      }
+      box.innerHTML = rows.join('') +
+        `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
+    } catch(err){
+      box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function arrivalRow(min, stops){
+    const m = Number(min);
+    const label = isNaN(m) ? String(min) : (m <= 0 ? '곧 도착' : m + '분 후');
+    const stopsTxt = (stops === undefined || stops === null || stops === '') ? '' :
+      `${stops}번째 전 정류장`;
+    return `<div class="arrival-row">
+      <div class="arrival-min">${label}${!isNaN(m) && m>0 ? '<small>도착예정</small>' : ''}</div>
+      <div class="arrival-stops">${stopsTxt}</div>
+    </div>`;
+  }
+
+  function resumeActiveFavs(){
+    getFavs().forEach(f => {
+      if (f.active){
+        pollArrival(f.id);
+        timers[f.id] = setInterval(() => pollArrival(f.id), 25000);
+      }
+    });
+    updateAppIcon(anyActive());
+  }
+
+  /* ---------- 즐겨찾기 추가 흐름 ---------- */
+  let pickedStation = null;
+
+  function openAddModal(){
+    document.getElementById('addModal').classList.remove('hidden');
+    document.getElementById('addStep1').style.display = 'block';
+    document.getElementById('addStep2').style.display = 'none';
+    document.getElementById('stationInput').value = '';
+    document.getElementById('stationResults').innerHTML = '';
+    document.getElementById('stationInput').focus();
+  }
+  function closeAddModal(){ document.getElementById('addModal').classList.add('hidden'); }
+
+  async function doStationSearch(){
+    const kw = document.getElementById('stationInput').value.trim();
+    const box = document.getElementById('stationResults');
+    if (!kw){ toast('정류소 이름을 입력해주세요'); return; }
+    box.innerHTML = `<div class="loading-row"><div class="spinner"></div>정류소 검색 중…</div>`;
+    try {
+      const stations = await searchStations(kw);
+      if (!stations.length){
+        box.innerHTML = `<div class="hint">검색 결과가 없어요. 정류소 이름을 다르게 시도해보세요.</div>`;
+        return;
+      }
+      box.innerHTML = '';
+      stations.slice(0, 25).forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = 'result-item';
+        btn.innerHTML = `<div class="rname">${escapeHtml(s.stationName)}</div>
+          <div class="rmeta">${escapeHtml(s.regionName || s.mobileNo || s.stationId)}</div>`;
+        btn.addEventListener('click', () => selectStation(s));
+        box.appendChild(btn);
+      });
+    } catch(err){
+      box.innerHTML = `<div class="hint">불러오지 못했어요: ${escapeHtml(err.message)}<br>API 키가 올바른지, 네트워크 연결을 확인해주세요.</div>`;
+    }
+  }
+
+  let allRoutesAtStation = [];
+  async function selectStation(station){
+    pickedStation = station;
+    document.getElementById('addStep1').style.display = 'none';
+    document.getElementById('addStep2').style.display = 'block';
+    document.getElementById('step2Title').textContent = station.stationName + ' 노선';
+    document.getElementById('routeFilterInput').value = '';
+    const box = document.getElementById('routeResults');
+    box.innerHTML = `<div class="loading-row"><div class="spinner"></div>노선 불러오는 중…</div>`;
+    try {
+      allRoutesAtStation = await getRoutesAtStation(station.stationId);
+      renderRouteResults('');
+    } catch(err){
+      box.innerHTML = `<div class="hint">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderRouteResults(filterText){
+    const box = document.getElementById('routeResults');
+    const f = filterText.trim();
+    const filtered = allRoutesAtStation.filter(r => !f || String(r.routeName).includes(f));
+    if (!filtered.length){
+      box.innerHTML = `<div class="hint">일치하는 노선이 없어요.</div>`;
+      return;
+    }
+    box.innerHTML = '';
+    filtered.forEach(r => {
+      const btn = document.createElement('button');
+      btn.className = 'result-item';
+      btn.innerHTML = `<div class="rname">${escapeHtml(r.routeName)}번</div>
+        <div class="rmeta">정류소 순번 ${escapeHtml(r.staOrder)}${r.regionName ? ' · ' + escapeHtml(r.regionName) : ''}</div>`;
+      btn.addEventListener('click', () => saveFavorite(r));
+      box.appendChild(btn);
+    });
+  }
+
+  function saveFavorite(route){
+    const favs = getFavs();
+    const id = pickedStation.stationId + '-' + route.routeId + '-' + route.staOrder;
+    if (favs.some(x => x.id === id)){
+      toast('이미 추가된 정류소·버스예요');
+      closeAddModal();
+      return;
+    }
+    favs.push({
+      id,
+      stationId: pickedStation.stationId,
+      stationName: pickedStation.stationName,
+      routeId: route.routeId,
+      routeName: route.routeName,
+      staOrder: route.staOrder,
+      active: false
+    });
+    setFavs(favs);
+    renderFavs();
+    closeAddModal();
+    toast('즐겨찾기에 추가했어요');
+  }
+
+  /* ---------- 설정 / API 키 ---------- */
+  function openSettings(){
+    document.getElementById('apiKeyInput').value = getApiKey();
+    document.getElementById('settingsModal').classList.remove('hidden');
+  }
+  function closeSettings(){ document.getElementById('settingsModal').classList.add('hidden'); }
+
+  function checkGate(){
+    document.getElementById('apiKeyGate').style.display = getApiKey() ? 'none' : 'flex';
+  }
+
+  /* ---------- 이벤트 바인딩 ---------- */
+  document.getElementById('addFabBtn').addEventListener('click', openAddModal);
+  document.getElementById('addCloseBtn').addEventListener('click', closeAddModal);
+  document.getElementById('stationSearchBtn').addEventListener('click', doStationSearch);
+  document.getElementById('stationInput').addEventListener('keydown', e => { if (e.key === 'Enter') doStationSearch(); });
+  document.getElementById('backToStep1').addEventListener('click', () => {
+    document.getElementById('addStep1').style.display = 'block';
+    document.getElementById('addStep2').style.display = 'none';
+  });
+  document.getElementById('routeFilterInput').addEventListener('input', e => renderRouteResults(e.target.value));
+
+  document.getElementById('settingsBtn').addEventListener('click', openSettings);
+  document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
+  document.getElementById('apiKeySaveBtn').addEventListener('click', () => {
+    setApiKey(document.getElementById('apiKeyInput').value.trim());
+    toast('API 키를 저장했어요');
+    closeSettings();
+    checkGate();
+  });
+  document.getElementById('gateSaveBtn').addEventListener('click', () => {
+    const v = document.getElementById('gateApiKeyInput').value.trim();
+    if (!v){ toast('API 키를 입력해주세요'); return; }
+    setApiKey(v);
+    checkGate();
+  });
+
+  /* ---------- 초기화 ---------- */
+  checkGate();
+  renderFavs();
+  resumeActiveFavs();
+})();
+</script>
+</body>
+</html>
