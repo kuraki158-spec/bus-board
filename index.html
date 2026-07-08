@@ -123,6 +123,18 @@
     font-size:14px; font-weight:700; color:var(--text);
     background:var(--panel); border-bottom:1px solid var(--line);
   }
+  .tt-days{
+    display:flex; gap:6px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .tt-days button{
+    flex:1; padding:9px 0; border-radius:10px; font-size:13px; font-weight:700;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text-dim);
+  }
+  .tt-days button.has{color:var(--green); border-color:var(--green-dim);}
+  .tt-days button.active{background:var(--amber); border-color:var(--amber); color:#1A1300;}
+  .tt-empty{
+    padding:60px 30px; text-align:center; color:var(--text-dim); font-size:14px; line-height:1.7;
+  }
   .tt-img-wrap{flex:1; overflow:auto; -webkit-overflow-scrolling:touch;}
   .tt-img-wrap img{width:100%; height:auto; display:block;}
   .tt-bar{
@@ -384,7 +396,15 @@
   <!-- 시간표 전체화면 뷰어 -->
   <div class="tt-viewer hidden" id="ttViewer">
     <div class="tt-title" id="ttTitle">시간표</div>
-    <div class="tt-img-wrap"><img id="ttImage" alt="시간표 이미지"></div>
+    <div class="tt-days">
+      <button data-ttday="wd">평일</button>
+      <button data-ttday="sat">토요일</button>
+      <button data-ttday="hol">휴일</button>
+    </div>
+    <div class="tt-img-wrap">
+      <img id="ttImage" alt="시간표 이미지">
+      <div class="tt-empty" id="ttEmpty" style="display:none;"></div>
+    </div>
     <div class="tt-bar">
       <button id="ttReplaceBtn">이미지 교체</button>
       <button id="ttDeleteBtn">삭제</button>
@@ -589,7 +609,7 @@
             <div class="knob"></div>
           </div>
           <div class="toggle-label">${f.active ? '실시간 추적 중' : '탭해서 켜기'}</div>
-          <button class="tt-btn${ttHave.has(f.id) ? ' has' : ''}" data-tt="${f.id}">시간표${ttHave.has(f.id) ? '' : ' ＋'}</button>
+          <button class="tt-btn${ttAnyDay(f.id) ? ' has' : ''}" data-tt="${f.id}">시간표${ttAnyDay(f.id) ? '' : ' ＋'}</button>
           <button class="kakao-btn" data-kakao="${f.id}">카카오맵 ↗</button>
         </div>
         <div class="arrival-display" id="arr-${f.id}">
@@ -690,7 +710,10 @@
   function deleteFav(id){
     clearInterval(timers[id]); delete timers[id];
     delete latest[id];
-    if (ttHave.has(id)){ ttDelete(id).catch(()=>{}); ttHave.delete(id); }
+    TT_DAYS.forEach(d => {
+      const k = ttKey(id, d);
+      if (ttHave.has(k)){ ttDelete(k).catch(()=>{}); ttHave.delete(k); }
+    });
     setFavs(getFavs().filter(x => x.id !== id));
     renderFavs();
     updateAppIcon(anyActive());
@@ -852,9 +875,15 @@
     location.href = 'kakaomap://search?q=' + encodeURIComponent(q);
   }
 
-  /* ---------- 시간표 이미지 (IndexedDB에 카드별로 저장) ---------- */
-  const ttHave = new Set(); // 이미지가 있는 favId 목록
+  /* ---------- 시간표 이미지 (IndexedDB에 카드×요일별로 저장) ---------- */
+  const TT_DAYS = ['wd', 'sat', 'hol'];
+  const TT_DAY_LABEL = { wd: '평일', sat: '토요일', hol: '휴일' };
+  const ttHave = new Set(); // 이미지가 있는 "favId:요일" 목록
   let ttCurrentId = null;   // 뷰어/업로드 대상 favId
+  let ttCurrentDay = 'wd';  // 뷰어에서 선택된 요일
+
+  function ttKey(id, day){ return id + ':' + day; }
+  function ttAnyDay(id){ return TT_DAYS.some(d => ttHave.has(ttKey(id, d))); }
 
   function ttDb(){
     return new Promise((res, rej) => {
@@ -864,26 +893,26 @@
       r.onerror = () => rej(r.error);
     });
   }
-  async function ttGet(id){
+  async function ttGet(key){
     const db = await ttDb();
     return new Promise((res, rej) => {
-      const t = db.transaction('timetables').objectStore('timetables').get(id);
+      const t = db.transaction('timetables').objectStore('timetables').get(key);
       t.onsuccess = () => res(t.result || null);
       t.onerror = () => rej(t.error);
     });
   }
-  async function ttSet(id, val){
+  async function ttSet(key, val){
     const db = await ttDb();
     return new Promise((res, rej) => {
-      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').put(val, id);
+      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').put(val, key);
       t.onsuccess = () => res();
       t.onerror = () => rej(t.error);
     });
   }
-  async function ttDelete(id){
+  async function ttDelete(key){
     const db = await ttDb();
     return new Promise((res, rej) => {
-      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').delete(id);
+      const t = db.transaction('timetables', 'readwrite').objectStore('timetables').delete(key);
       t.onsuccess = () => res();
       t.onerror = () => rej(t.error);
     });
@@ -896,18 +925,29 @@
         t.onsuccess = () => res(t.result || []);
         t.onerror = () => rej(t.error);
       });
-      keys.forEach(k => ttHave.add(k));
+      // 요일 구분 이전에 저장된 이미지는 "평일"로 이전
+      for (const k of keys){
+        const isLegacy = TT_DAYS.every(d => !String(k).endsWith(':' + d));
+        if (isLegacy){
+          const val = await ttGet(k);
+          if (val){ await ttSet(ttKey(k, 'wd'), val); }
+          await ttDelete(k);
+          ttHave.add(ttKey(k, 'wd'));
+        } else {
+          ttHave.add(k);
+        }
+      }
       renderFavs();
     } catch(e){ /* IndexedDB 미지원 환경 - 시간표 기능만 비활성 */ }
   }
 
-  // 캡처 이미지를 저장 전 자동 압축 (최대 1600px, JPEG)
+  // 캡처 이미지를 저장 전 압축 (최대 2400px, 고품질 JPEG — 캡처 원본 화질 최대한 보존)
   function ttCompress(file){
     return new Promise((res, rej) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const max = 1600;
+        const max = 2400;
         const scale = Math.min(1, max / Math.max(img.width, img.height));
         const w = Math.round(img.width * scale);
         const h = Math.round(img.height * scale);
@@ -915,30 +955,58 @@
         c.width = w; c.height = h;
         c.getContext('2d').drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
-        res(c.toDataURL('image/jpeg', 0.85));
+        res(c.toDataURL('image/jpeg', 0.92));
       };
       img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지를 읽지 못했어요')); };
       img.src = url;
     });
   }
 
-  async function openTimetable(id){
+  function openTimetable(id){
     ttCurrentId = id;
-    if (!ttHave.has(id)){
-      document.getElementById('ttFileInput').click(); // 이미지 없음 → 바로 업로드
-      return;
+    const f = getFavs().find(x => x.id === id);
+    document.getElementById('ttTitle').textContent =
+      (f ? f.routeName + ' · ' + f.stationName + ' ' : '') + '시간표';
+    // 기본 요일: 이미지가 있는 첫 요일, 없으면 평일
+    const firstHas = TT_DAYS.find(d => ttHave.has(ttKey(id, d)));
+    document.getElementById('ttViewer').classList.remove('hidden');
+    showTtDay(firstHas || 'wd');
+  }
+
+  async function showTtDay(day){
+    ttCurrentDay = day;
+    const id = ttCurrentId;
+    const key = ttKey(id, day);
+    // 요일 탭 상태 표시
+    document.querySelectorAll('[data-ttday]').forEach(el => {
+      const d = el.getAttribute('data-ttday');
+      el.classList.toggle('active', d === day);
+      el.classList.toggle('has', ttHave.has(ttKey(id, d)));
+    });
+    const imgEl = document.getElementById('ttImage');
+    const emptyEl = document.getElementById('ttEmpty');
+    const replaceBtn = document.getElementById('ttReplaceBtn');
+    const deleteBtn = document.getElementById('ttDeleteBtn');
+
+    if (ttHave.has(key)){
+      try {
+        const dataUrl = await ttGet(key);
+        imgEl.src = dataUrl || '';
+        imgEl.style.display = 'block';
+        emptyEl.style.display = 'none';
+        replaceBtn.textContent = '이미지 교체';
+        deleteBtn.disabled = false;
+        deleteBtn.style.opacity = '1';
+        return;
+      } catch(e){ /* 아래 빈 상태로 */ }
     }
-    try {
-      const dataUrl = await ttGet(id);
-      if (!dataUrl){ ttHave.delete(id); renderFavs(); return; }
-      const f = getFavs().find(x => x.id === id);
-      document.getElementById('ttTitle').textContent =
-        (f ? f.routeName + ' · ' + f.stationName + ' ' : '') + '시간표';
-      document.getElementById('ttImage').src = dataUrl;
-      document.getElementById('ttViewer').classList.remove('hidden');
-    } catch(e){
-      toast('시간표를 불러오지 못했어요');
-    }
+    imgEl.src = '';
+    imgEl.style.display = 'none';
+    emptyEl.innerHTML = '아직 등록된 <b>' + TT_DAY_LABEL[day] + '</b> 시간표가 없어요.<br>아래 [이미지 업로드]를 눌러 캡처를 추가하세요.';
+    emptyEl.style.display = 'block';
+    replaceBtn.textContent = '이미지 업로드';
+    deleteBtn.disabled = true;
+    deleteBtn.style.opacity = '.35';
   }
 
   function closeTimetableViewer(){
@@ -946,20 +1014,22 @@
     document.getElementById('ttImage').src = '';
   }
 
+  document.querySelectorAll('[data-ttday]').forEach(el => {
+    el.addEventListener('click', () => showTtDay(el.getAttribute('data-ttday')));
+  });
+
   document.getElementById('ttFileInput').addEventListener('change', async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = ''; // 같은 파일 재선택 가능하게 초기화
     if (!file || !ttCurrentId) return;
     try {
       const dataUrl = await ttCompress(file);
-      await ttSet(ttCurrentId, dataUrl);
-      ttHave.add(ttCurrentId);
+      const key = ttKey(ttCurrentId, ttCurrentDay);
+      await ttSet(key, dataUrl);
+      ttHave.add(key);
       renderFavs();
-      toast('시간표를 저장했어요');
-      // 뷰어가 열려있는 상태(교체)라면 이미지 즉시 갱신
-      if (!document.getElementById('ttViewer').classList.contains('hidden')){
-        document.getElementById('ttImage').src = dataUrl;
-      }
+      toast(TT_DAY_LABEL[ttCurrentDay] + ' 시간표를 저장했어요');
+      showTtDay(ttCurrentDay);
     } catch(err){
       toast('저장 실패: ' + err.message);
     }
@@ -970,12 +1040,13 @@
   });
   document.getElementById('ttDeleteBtn').addEventListener('click', async () => {
     if (!ttCurrentId) return;
-    if (!confirm('이 시간표 이미지를 삭제할까요?')) return;
-    await ttDelete(ttCurrentId);
-    ttHave.delete(ttCurrentId);
-    closeTimetableViewer();
+    if (!confirm(TT_DAY_LABEL[ttCurrentDay] + ' 시간표 이미지를 삭제할까요?')) return;
+    const key = ttKey(ttCurrentId, ttCurrentDay);
+    await ttDelete(key);
+    ttHave.delete(key);
     renderFavs();
     toast('시간표를 삭제했어요');
+    showTtDay(ttCurrentDay);
   });
   document.getElementById('ttCloseBtn').addEventListener('click', closeTimetableViewer);
 
