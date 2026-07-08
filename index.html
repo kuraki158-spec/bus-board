@@ -166,14 +166,29 @@
   .arrival-status.err{color:var(--red);}
   .arrival-loading{color:var(--amber); font-family:'Share Tech Mono', monospace; font-size:14px; letter-spacing:.05em;}
 
-  .fab{
+  .fab-row{
     position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
     width:calc(100% - 32px); max-width:448px;
+    display:flex; gap:8px;
+  }
+  .fab{
+    flex:1.4;
     background:var(--amber); color:#1A1300; border:none;
-    padding:16px; border-radius:16px; font-size:15px; font-weight:700;
+    padding:16px 8px; border-radius:16px; font-size:15px; font-weight:700;
     box-shadow:0 10px 30px -8px rgba(255,176,0,.5);
     display:flex; align-items:center; justify-content:center; gap:8px;
   }
+  .fab-all{
+    flex:1;
+    background:var(--green); color:#04140B; border:none;
+    padding:16px 8px; border-radius:16px; font-size:15px; font-weight:800;
+    box-shadow:0 10px 30px -8px rgba(0,230,118,.4);
+  }
+  .fab-all.all-on{
+    background:var(--panel); color:var(--green); border:1px solid var(--green-dim);
+    box-shadow:none;
+  }
+  .fab-all:disabled{opacity:.35;}
 
   /* modal */
   .modal{
@@ -329,7 +344,10 @@
     </div>
   </main>
 
-  <button class="fab" id="addFabBtn">+ 정류소·버스 추가</button>
+  <div class="fab-row">
+    <button class="fab-all" id="allToggleBtn">모두 켜기</button>
+    <button class="fab" id="addFabBtn">+ 정류소·버스 추가</button>
+  </div>
 
   <!-- 즐겨찾기 추가 모달 -->
   <div class="modal hidden" id="addModal">
@@ -640,7 +658,32 @@
 
     // 화면에 보이는 추적 중 카드는 즉시 데이터 다시 채움
     visible.forEach(f => { if (f.active) pollArrival(f.id); });
+    updateAllToggleBtn(visible);
     renderSummary();
+  }
+
+  // 현재 탭 기준 [모두 켜기/끄기] 버튼 상태 갱신
+  function updateAllToggleBtn(visible){
+    const btn = document.getElementById('allToggleBtn');
+    if (!visible.length){
+      btn.disabled = true;
+      btn.textContent = '모두 켜기';
+      btn.classList.remove('all-on');
+      return;
+    }
+    btn.disabled = false;
+    const allOn = visible.every(f => f.active);
+    btn.textContent = allOn ? '모두 끄기' : '모두 켜기';
+    btn.classList.toggle('all-on', allOn);
+  }
+
+  // 현재 탭의 즐겨찾기를 한 번에 켜기/끄기
+  function toggleAllInTab(){
+    const visible = getFavs().filter(inTab);
+    if (!visible.length){ toast('이 탭에 즐겨찾기가 없어요'); return; }
+    const target = !visible.every(f => f.active); // 하나라도 꺼져있으면 → 모두 켜기
+    visible.forEach(f => { if (f.active !== target) toggleFav(f.id); });
+    toast(GROUP_LABEL[currentTab] + ' 버스 ' + (target ? '모두 켜짐' : '모두 꺼짐'));
   }
 
   // 현재 탭에 보이는 목록 기준으로 한 칸 이동 (실제 저장 배열에서 두 항목 위치 교환)
@@ -881,6 +924,7 @@
   const ttHave = new Set(); // 이미지가 있는 "favId:요일" 목록
   let ttCurrentId = null;   // 뷰어/업로드 대상 favId
   let ttCurrentDay = 'wd';  // 뷰어에서 선택된 요일
+  let ttHistoryPushed = false; // 뷰어 열림 상태가 히스토리에 올라가 있는지
 
   function ttKey(id, day){ return id + ':' + day; }
   function ttAnyDay(id){ return TT_DAYS.some(d => ttHave.has(ttKey(id, d))); }
@@ -987,6 +1031,11 @@
       if (firstHas) day = firstHas;
     }
     document.getElementById('ttViewer').classList.remove('hidden');
+    // 폰의 뒤로가기 버튼으로 뷰어를 닫을 수 있게 히스토리에 상태 추가
+    if (!ttHistoryPushed){
+      history.pushState({ ttViewer: true }, '');
+      ttHistoryPushed = true;
+    }
     showTtDay(day);
   }
 
@@ -1026,10 +1075,23 @@
     deleteBtn.style.opacity = '.35';
   }
 
-  function closeTimetableViewer(){
+  function closeTimetableViewer(fromBackButton){
     document.getElementById('ttViewer').classList.add('hidden');
     document.getElementById('ttImage').src = '';
+    if (fromBackButton){
+      ttHistoryPushed = false; // 뒤로가기가 이미 히스토리를 소비함
+    } else if (ttHistoryPushed){
+      ttHistoryPushed = false;
+      history.back(); // 닫기 버튼으로 닫을 땐 추가해둔 히스토리를 정리
+    }
   }
+
+  // 폰 뒤로가기(브라우저 back) → 뷰어가 열려있으면 앱이 닫히는 대신 뷰어만 닫힘
+  window.addEventListener('popstate', () => {
+    if (!document.getElementById('ttViewer').classList.contains('hidden')){
+      closeTimetableViewer(true);
+    }
+  });
 
   document.querySelectorAll('[data-ttday]').forEach(el => {
     el.addEventListener('click', () => showTtDay(el.getAttribute('data-ttday')));
@@ -1065,7 +1127,7 @@
     toast('시간표를 삭제했어요');
     showTtDay(ttCurrentDay);
   });
-  document.getElementById('ttCloseBtn').addEventListener('click', closeTimetableViewer);
+  document.getElementById('ttCloseBtn').addEventListener('click', () => closeTimetableViewer(false));
 
   // 정류소 고유번호가 비어있는 기존 즐겨찾기를 앱 시작 시 자동으로 채움
   async function backfillStationNos(){
@@ -1172,6 +1234,7 @@
 
   /* ---------- 이벤트 바인딩 ---------- */
   document.getElementById('addFabBtn').addEventListener('click', openAddModal);
+  document.getElementById('allToggleBtn').addEventListener('click', toggleAllInTab);
   document.getElementById('addCloseBtn').addEventListener('click', closeAddModal);
   document.getElementById('stationSearchBtn').addEventListener('click', doStationSearch);
   document.getElementById('stationInput').addEventListener('keydown', e => { if (e.key === 'Enter') doStationSearch(); });
