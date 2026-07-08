@@ -12,7 +12,7 @@
 <link id="appleTouchIcon" rel="apple-touch-icon" href="">
 <link id="manifestLink" rel="manifest" href="">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbit&family=Inter:wght@400;500;600;700;800&display=swap');
 
   :root{
     --bg:#0A0E0F;
@@ -109,7 +109,7 @@
   .arrival-row{display:flex; justify-content:space-between; align-items:baseline; padding:6px 0;}
   .arrival-row + .arrival-row{border-top:1px dashed var(--line);}
   .arrival-min{
-    font-family:'Share Tech Mono', monospace; font-size:26px; color:var(--green);
+    font-family:'Orbit', 'Share Tech Mono', monospace; font-size:26px; color:var(--green);
     text-shadow:0 0 12px rgba(0,230,118,.55);
   }
   .arrival-min small{font-size:13px; margin-left:4px; color:var(--text-dim); font-family:'Inter',sans-serif;}
@@ -219,7 +219,7 @@
   .summary-row + .summary-row{border-top:1px dashed var(--line);}
   .s-route{font-size:18px; font-weight:800; min-width:64px;}
   .s-min{
-    font-family:'Share Tech Mono', monospace; font-size:18px; color:var(--green);
+    font-family:'Orbit', 'Share Tech Mono', monospace; font-size:18px; color:var(--green);
     text-shadow:0 0 10px rgba(0,230,118,.45);
   }
   .s-station{font-size:11.5px; color:var(--text-faint); margin-left:auto; text-align:right;}
@@ -402,7 +402,13 @@
   }
 
   async function rawFetchJson(fullUrl, timeoutMs){
-    const res = await fetchWithTimeout(fullUrl, timeoutMs);
+    let res;
+    try {
+      res = await fetchWithTimeout(fullUrl, timeoutMs);
+    } catch(e){
+      if (e && e.name === 'AbortError') throw new Error('응답 지연(시간 초과)');
+      throw e;
+    }
     const text = await res.text();
     if (!res.ok){
       throw new Error('HTTP ' + res.status + (text ? ' · ' + text.slice(0, 180) : ''));
@@ -424,7 +430,7 @@
     let data = null;
     for (const mode of order){
       const base = mode === 'direct' ? GBIS_DIRECT : GBIS_PROXY;
-      const timeout = mode === 'direct' ? 6000 : 12000;
+      const timeout = mode === 'direct' ? 10000 : 12000;
       try {
         data = await rawFetchJson(base + path + qs, timeout);
         localStorage.setItem(LS_KEY_ROUTE, mode);
@@ -605,7 +611,7 @@
 
     if (f.active){
       pollArrival(f.id);
-      timers[id] = setInterval(() => pollArrival(id), 25000);
+      timers[id] = setInterval(() => pollArrival(id), 60000);
     } else {
       clearInterval(timers[id]);
       delete timers[id];
@@ -620,6 +626,8 @@
     updateAppIcon(anyActive());
   }
 
+  const lastRows = {}; // favId -> 마지막 성공 렌더 (일시 실패 시 유지용)
+
   async function pollArrival(id){
     const f = getFavs().find(x => x.id === id);
     if (!f || !f.active) return;
@@ -627,7 +635,7 @@
     try {
       const item = await getArrival(f.stationId, f.routeId, f.staOrder);
       if (!item){
-        delete latest[id];
+        delete latest[id]; delete lastRows[id];
         if (box) box.innerHTML = `<div class="arrival-status err">이 시간대 운행 정보가 없어요</div>`;
         renderSummary();
         return;
@@ -640,14 +648,22 @@
       if (item.predictTime2 !== undefined){
         rows.push(arrivalRow(item.predictTime2, item.locationNo2));
       }
+      lastRows[id] = rows.join('');
       if (box){
-        box.innerHTML = rows.join('') +
+        box.innerHTML = lastRows[id] +
           `<div class="arrival-status">방금 갱신됨 · ${new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>`;
       }
       renderSummary();
     } catch(err){
-      delete latest[id];
-      if (box) box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+      // 일시적 실패: 직전 정보가 있으면 유지하고 조용히 재시도 예고만
+      if (box){
+        if (lastRows[id]){
+          box.innerHTML = lastRows[id] +
+            `<div class="arrival-status err">갱신 실패 · 잠시 후 자동 재시도</div>`;
+        } else {
+          box.innerHTML = `<div class="arrival-status err">불러오지 못했어요: ${escapeHtml(err.message)}</div>`;
+        }
+      }
       renderSummary();
     }
   }
@@ -667,7 +683,7 @@
     getFavs().forEach(f => {
       if (f.active){
         pollArrival(f.id);
-        timers[f.id] = setInterval(() => pollArrival(f.id), 25000);
+        timers[f.id] = setInterval(() => pollArrival(f.id), 60000);
       }
     });
     updateAppIcon(anyActive());
